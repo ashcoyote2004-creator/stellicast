@@ -8,7 +8,8 @@ export default async function AdminChannelApplicationsPage() {
     const user = await requireAdmin(supabase);
 
     if (!user) {
-        redirect('/');
+        // Send visitors to the admin sign-in instead of the public feed.
+        redirect('/admin/login');
     }
 
     return <AdminChannelApplicationsClient />;

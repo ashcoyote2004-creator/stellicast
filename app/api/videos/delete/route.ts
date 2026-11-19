@@ -25,7 +25,7 @@ export async function DELETE(request: NextRequest) {
     // Verify the user owns the video before deleting
     const { data: video, error: videoError } = await supabase
       .from('videos')
-      .select('id, channel_id, channels!inner(owner_id)')
+      .select('id, channel_id, video_url, channels!inner(owner_id)')
       .eq('id', videoId)
       .single();
 
@@ -41,7 +41,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     try {
-      await deleteVideoAssets(videoId);
+      await deleteVideoAssets(videoId, (video as any).video_url);
     } catch (storageError: any) {
       console.error('[delete] Storage cleanup failed:', storageError);
       return NextResponse.json(
