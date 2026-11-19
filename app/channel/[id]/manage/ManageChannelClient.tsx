@@ -406,19 +406,14 @@ function VideoManager({ videos, setVideos, channelId, supabase }: VideoManagerPr
 
     try {
       setLoading(true);
-      const target = videos.find(v => v.id === id);
-
-      if (target?.video_url) {
-        const urlParts = target.video_url.split('/');
-        const guid = urlParts[urlParts.length - 2];
-        const deleteResponse = await fetch(`/api/videos/delete-bunny`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ guid }),
-        });
-        if (!deleteResponse.ok) {
-          console.error(`Failed to delete video ${guid} from Bunny.net`);
-        }
+      // Remove the stored files (video + thumbnail) for this video
+      const deleteResponse = await fetch('/api/videos/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ videoId: id }),
+      });
+      if (!deleteResponse.ok) {
+        console.error(`Failed to delete stored files for video ${id}`);
       }
 
       const { error } = await supabase.from('videos').delete().eq('id', id);
@@ -445,28 +440,21 @@ function VideoManager({ videos, setVideos, channelId, supabase }: VideoManagerPr
       // Get the videos to be deleted
       const videosToDelete = videos.filter(v => selectedVideos.includes(v.id));
 
-      // Delete videos from Bunny.net
+      // Delete the stored files for every selected video
       for (const video of videosToDelete) {
         try {
-          // Extract GUID from video_url: https://${pullZone}/${guid}/playlist.m3u8
-          if (video.video_url) {
-            const urlParts = video.video_url.split('/');
-            const guid = urlParts[urlParts.length - 2]; // GUID is before 'playlist.m3u8'
+          const deleteResponse = await fetch('/api/videos/delete', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ videoId: video.id }),
+          });
 
-            // Delete from Bunny Stream
-            const deleteResponse = await fetch(`/api/videos/delete-bunny`, {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ guid }),
-            });
-
-            if (!deleteResponse.ok) {
-              console.error(`Failed to delete video ${guid} from Bunny.net`);
-            }
+          if (!deleteResponse.ok) {
+            console.error(`Failed to delete stored files for video ${video.id}`);
           }
-        } catch (bunnyError) {
-          console.error('Error deleting from Bunny.net:', bunnyError);
-          // Continue even if Bunny deletion fails
+        } catch (storageError) {
+          console.error('Error deleting stored files:', storageError);
+          // Continue even if storage cleanup fails
           // todo: maybe log this somewhere where admins can see
         }
       }

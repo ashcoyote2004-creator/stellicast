@@ -81,9 +81,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     const thumbnail = videoData.thumbnail_url;
 
     const embedUrl = `${baseUrl}/embed/${video.slug}`;
-    const videoGuid = videoData.video_url.split('/').slice(-2, -1)[0];
-    const pullZone = process.env.BUNNY_PULL_ZONE_HOSTNAME;
-    const mp4Url = `https://${pullZone}/${videoGuid}/play_720p.mp4`;
+    // Stored videos are served directly from the configured storage provider
+    const mp4Url = videoData.video_url || '';
 
     return {
       title,

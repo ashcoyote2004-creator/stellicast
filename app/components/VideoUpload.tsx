@@ -268,16 +268,25 @@ export default function VideoUpload({
       const resultPendingSlugs: string[] = createJson.pendingSectorSlugs ?? [];
       setVideoId(id || null);
       const uploadUrl = createJson.uploadUrl || createJson.upload_url;
-      const guid = createJson.guid;
-      const libraryId = createJson.libraryId || createJson.library_id;
-      const apiKey = createJson.apiKey || createJson.api_key;
-      uploadTargetRef.current = { uploadUrl, guid, libraryId, apiKey };
+      uploadTargetRef.current = {
+        uploadUrl,
+        method: createJson.uploadMethod || 'PUT',
+        headers: createJson.uploadHeaders || {},
+      };
       setUploadProgress(15);
       setUploadStage('Uploading file...');
       await Promise.all([
         uploadFileWithProgress(file, uploadTargetRef.current),
         thumbnailFile ? uploadThumbnail(id, thumbnailFile) : Promise.resolve(),
       ]);
+      if (id) {
+        // Mark the video as ready now that the file is in storage
+        await fetch(`/api/videos/${id}/finalize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ duration: durationSeconds, filesize: file.size }),
+        }).catch(err => console.error('Failed to finalize upload', err));
+      }
       setUploadProgress(100);
       setUploadStage('Upload complete');
       setUploading(false);
@@ -304,18 +313,17 @@ export default function VideoUpload({
 
   const uploadFileWithProgress = (file: File, target: any) =>
       new Promise<void>((resolve, reject) => {
+        if (!target?.uploadUrl) { reject(new Error('No upload target available')); return; }
         const xhr = new XMLHttpRequest();
         xhr.upload.addEventListener('progress', (e) => {
           if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 80) + 15);
         });
         xhr.addEventListener('load', () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed with status ${xhr.status}`))));
         xhr.addEventListener('error', () => reject(new Error('Upload failed')));
-        if (target?.uploadUrl) { try { xhr.open('PUT', target.uploadUrl, true); } catch (e) { reject(e); return; } }
-        else if (target?.libraryId && target?.apiKey && target?.guid) {
-          xhr.open('PUT', `https://video.bunnycdn.com/library/${target.libraryId}/videos/${target.guid}`, true);
-          xhr.setRequestHeader('AccessKey', target.apiKey);
-          xhr.setRequestHeader('Content-Type', 'application/octet-stream');
-        } else { reject(new Error('No upload target available')); return; }
+        try { xhr.open(target.method || 'PUT', target.uploadUrl, true); } catch (e) { reject(e); return; }
+        Object.entries(target.headers || {}).forEach(([key, value]) => {
+          try { xhr.setRequestHeader(key, String(value)); } catch { /* header not allowed */ }
+        });
         xhr.send(file);
       });
 
