@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/../lib/supabase-server';
 import { hasPermission } from '@/../lib/sector-utils';
+import { createVideoUploadTarget } from '@/../lib/video-storage';
 import type { SectorRole } from '@/../types';
 
 // -------- Slug generation --------
@@ -87,49 +88,60 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create video placeholder in Bunny Stream
-    const createResponse = await fetch(
-      `https://video.bunnycdn.com/library/${process.env.BUNNY_STREAM_LIBRARY_ID}/videos`,
-      {
-        method: 'POST',
-        headers: {
-          'AccessKey': process.env.BUNNY_STREAM_API_KEY!,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ title: title || 'Untitled Video' }),
-      }
-    );
-
-    if (!createResponse.ok) throw new Error('Bunny Stream initialization failed');
-    const videoData = await createResponse.json();
-    const guid = videoData.guid;
-
-    const pullZone = process.env.BUNNY_PULL_ZONE_HOSTNAME;
-
     // Generate unique slug for the video
     const slug = await generateUniqueSlug(supabase);
 
-    // Store video metadata
+    // Store video metadata first so we have an ID for the storage path.
+    // processing_status stays 'processing' until the file is uploaded and finalized.
     const { data: newVideo, error: dbError } = await supabase
       .from('videos')
       .insert({
         title: title || 'Untitled Video',
         description: body.description || '',
-        thumbnail_url: `https://${pullZone}/${guid}/thumbnail.jpg`,
-        video_url: `https://${pullZone}/${guid}/playlist.m3u8`,
+        thumbnail_url: '',
+        video_url: '',
         channel_id: channel_id,
         view_count: 0,
-        duration: 0,
+        duration: body.duration || 0,
         visibility: body.visibility,
         is_ai: body.is_ai || false,
         is_promotional: body.is_promotional || false,
         tags: body.tags || [],
         slug: slug,
+        processing_status: 'processing',
       })
       .select()
       .single();
 
     if (dbError) throw dbError;
+
+    // Ask the configured storage provider (Supabase Storage by default) for a
+    // direct-from-browser upload target.
+    let upload: Awaited<ReturnType<typeof createVideoUploadTarget>>;
+    try {
+      upload = await createVideoUploadTarget({
+        videoId: newVideo.id,
+        filename: body.filename,
+        contentType: body.contentType || body.mime_type,
+        size: body.filesize,
+      });
+    } catch (storageError: any) {
+      // Roll back the placeholder row so failed uploads don't leave ghosts behind.
+      await supabase.from('videos').delete().eq('id', newVideo.id);
+      console.error('Storage initialization failed:', storageError);
+      return NextResponse.json(
+        { error: storageError?.message || 'Video storage is not configured yet.' },
+        { status: 503 }
+      );
+    }
+
+    // Persist the playback URL that the uploaded file will be served from.
+    const { error: urlError } = await supabase
+      .from('videos')
+      .update({ video_url: upload.videoUrl, updated_at: new Date().toISOString() })
+      .eq('id', newVideo.id);
+
+    if (urlError) throw urlError;
 
     // -------- Sector linking with approval status --------
 
@@ -183,11 +195,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      guid,
       videoId: newVideo.id,
       slug: newVideo.slug,
-      libraryId: process.env.BUNNY_STREAM_LIBRARY_ID,
-      apiKey: process.env.BUNNY_STREAM_API_KEY,
+      uploadUrl: upload.target.uploadUrl,
+      uploadMethod: upload.target.method,
+      uploadHeaders: upload.target.headers,
+      storageProvider: upload.target.provider,
       pendingSectorSlugs,
     });
   } catch (error: any) {
