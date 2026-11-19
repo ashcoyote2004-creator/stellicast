@@ -112,6 +112,37 @@ Building a YouTube competitor requires overcoming significant obstacles:
 
 ---
 
+## Self-Hosting & Storage
+
+Stellicast runs on **Supabase only** — no Bunny Stream account is required.
+
+1. Create a Supabase project and apply the database schema.
+2. Create a **public** Storage bucket named `videos` (or set `SUPABASE_STORAGE_BUCKET`).
+3. Copy `.env.local.example` to `.env.local` and fill in the Supabase values.
+4. `npm install && npm run build && npm start`.
+
+Videos upload straight from the browser to Supabase Storage using signed upload
+URLs; thumbnails are stored in the same bucket. If storage is not configured the
+rest of the site still builds and runs — only uploads are unavailable.
+
+### Using your own storage API
+
+Set `STORAGE_API_URL` (plus optional `STORAGE_API_KEY` and `STORAGE_CDN_HOSTNAME`)
+to send uploads to your own service instead of Supabase Storage. The adapter
+expects three endpoints:
+
+| Method | Path | Request | Response |
+| --- | --- | --- | --- |
+| POST | `/uploads` | JSON `{ videoId, filename, contentType, size, kind }` | `{ uploadUrl, method?, headers?, publicUrl }` |
+| POST | `/thumbnails` | multipart `videoId`, `thumbnail` (image) | `{ publicUrl }` |
+| DELETE | `/uploads/{videoId}` | – | any 2xx (404 is ignored) |
+
+`uploadUrl` is called directly by the browser, so it must allow cross-origin
+`PUT` (or `POST` when `method` says so). When `STORAGE_API_KEY` is set, requests
+carry `Authorization: Bearer <key>`.
+
+---
+
 ## Contributing
 
 Currently, this is a solo project. Due to security concerns and my limited 
