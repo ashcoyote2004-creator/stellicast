@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServerClient } from '@/../lib/supabase-server';
-import { uploadVideoThumbnail } from '@/../lib/video-storage';
+import { uploadVideoThumbnail, providerThumbnailFromUrl } from '@/../lib/video-storage';
 
 const EXTENSION_BY_TYPE: Record<string, string> = {
     'image/jpeg': 'jpg',
@@ -34,6 +34,17 @@ export async function POST(
     const channel = video.channels as unknown as { owner_id: string } | null;
     if (channel?.owner_id !== user.id) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+
+    // -------- Provider-generated thumbnail (Mux renders one per asset) --------
+    // Saves an upload and keeps processing cost at zero.
+    const providerThumbnail = providerThumbnailFromUrl((video as any).video_url);
+    if (providerThumbnail) {
+        await supabase
+            .from('videos')
+            .update({ thumbnail_url: providerThumbnail, updated_at: new Date().toISOString() })
+            .eq('id', id);
+        return NextResponse.json({ thumbnail_url: providerThumbnail, source: 'provider' });
     }
 
     // -------- Parse and validate the uploaded file --------
