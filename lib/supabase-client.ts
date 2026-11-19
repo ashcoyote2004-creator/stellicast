@@ -1,7 +1,16 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+// Placeholders keep the client constructible during build/prerender when the
+// project has not been configured yet. Real values are used at runtime.
+const PLACEHOLDER_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJvbGUiOiJhbm9uIiwiaWF0IjowLCJleHAiOjB9.cGxhY2Vob2xkZXI';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || 'https://placeholder.supabase.co';
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || PLACEHOLDER_KEY;
+
+export const isSupabaseConfigured = Boolean(
+  process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+);
 
 let client: ReturnType<typeof createBrowserClient> | null = null;
 let initPromise: Promise<void> | null = null;
@@ -34,7 +43,7 @@ export function createSupabaseBrowserClient() {
     });
 
     // Initialize session on first client creation
-    if (!initPromise) {
+    if (!initPromise && isSupabaseConfigured) {
       initPromise = (async () => {
         try {
           await client!.auth.getSession();
